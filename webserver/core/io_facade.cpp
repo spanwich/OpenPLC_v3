@@ -8,13 +8,13 @@
 class LadderIoFacade final : public IoFacade {
 public:
     IEC_BOOL readDiscreteInput(std::size_t index) const override {
-        if (index >= discreteCount()) { return 0; }
+        if (index >= discreteInputCount()) { return 0; }
         IEC_BOOL *ptr = bool_input[index / kBitsPerByte][index % kBitsPerByte];
         return ptr ? *ptr : 0;
     }
 
     void writeDiscreteInput(std::size_t index, IEC_BOOL value) override {
-        if (index >= discreteCount()) { return; }
+        if (index >= discreteInputCount()) { return; }
         IEC_BOOL *ptr = bool_input[index / kBitsPerByte][index % kBitsPerByte];
         if (ptr != nullptr) {
             *ptr = value;
@@ -138,7 +138,7 @@ public:
     }
 
     bool hasDiscreteInput(std::size_t index) const override {
-        if (index >= discreteCount()) { return false; }
+        if (index >= discreteInputCount()) { return false; }
         return bool_input[index / kBitsPerByte][index % kBitsPerByte] != nullptr;
     }
 
