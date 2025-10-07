@@ -78,7 +78,7 @@ Future isolation work (e.g., seL4 endpoints) only has to swap out the concrete i
 - Validate the CLI-based startup covers the prior automation scenarios (start runtime, deploy IEC program, enable modbus server, query status, shutdown).
 
 ## Next Steps Checklist
-- [ ] Implement a concrete `IoFacade` backed by the existing IEC buffers and refactor Modbus handlers to use it.
+- [x] Implement a concrete `IoFacade` backed by the existing IEC buffers and refactor Modbus handlers to use it.
 - [ ] Introduce a protocol service registry so `main.cpp` no longer hardcodes `initialize*` calls.
 - [ ] Design and implement `openplcctl` (or equivalent) to replace Flask/SQLite orchestration.
 - [ ] Remove unused protocol code paths, guarding anything temporarily required behind compile-time flags.

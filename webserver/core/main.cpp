@@ -33,6 +33,7 @@
 
 #include "iec_types.h"
 #include "ladder.h"
+#include "io_facade.h"
 #ifdef _ethercat_src
 #include "ethercat_src.h"
 #endif
@@ -63,6 +64,8 @@ void logger_callback(char *msg){ log(msg);}
 
 int main(int argc,char **argv)
 {
+    IoFacade &ioFacade = getIoFacade();
+    (void)ioFacade;
     // Define the max/min/avg/total cycle and latency variables used in REAL-TIME computation(in nanoseconds)
     long cycle_avg, cycle_max, cycle_min, cycle_total;
     long latency_avg, latency_max, latency_min, latency_total;

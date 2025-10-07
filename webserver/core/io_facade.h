@@ -39,3 +39,4 @@ public:
     virtual void flushWrites() = 0;
 };
 
+IoFacade &getIoFacade();
