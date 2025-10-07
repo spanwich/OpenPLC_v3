@@ -13,6 +13,14 @@ public:
         return ptr ? *ptr : 0;
     }
 
+    void writeDiscreteInput(std::size_t index, IEC_BOOL value) override {
+        if (index >= discreteCount()) { return; }
+        IEC_BOOL *ptr = bool_input[index / kBitsPerByte][index % kBitsPerByte];
+        if (ptr != nullptr) {
+            *ptr = value;
+        }
+    }
+
     std::size_t discreteInputCount() const override {
         return kDiscreteCount;
     }
@@ -39,6 +47,14 @@ public:
         if (index >= inputRegisterCount()) { return 0; }
         IEC_UINT *ptr = int_input[index];
         return ptr ? *ptr : 0;
+    }
+
+    void writeInputRegister(std::size_t index, IEC_UINT value) override {
+        if (index >= inputRegisterCount()) { return; }
+        IEC_UINT *ptr = int_input[index];
+        if (ptr != nullptr) {
+            *ptr = value;
+        }
     }
 
     std::size_t inputRegisterCount() const override {
@@ -81,8 +97,79 @@ public:
         return kMemoryCount;
     }
 
+    IEC_UDINT readDoubleWord(std::size_t index) const override {
+        if (index >= doubleWordCount()) { return 0; }
+        IEC_UDINT *ptr = dint_memory[index];
+        return ptr ? *ptr : 0;
+    }
+
+    void writeDoubleWord(std::size_t index, IEC_UDINT value) override {
+        if (index >= doubleWordCount()) { return; }
+        IEC_UDINT *ptr = dint_memory[index];
+        if (ptr != nullptr) {
+            *ptr = value;
+        }
+    }
+
+    std::size_t doubleWordCount() const override {
+        return kDwordCount;
+    }
+
+    IEC_ULINT readQuadWord(std::size_t index) const override {
+        if (index >= quadWordCount()) { return 0; }
+        IEC_ULINT *ptr = lint_memory[index];
+        return ptr ? *ptr : 0;
+    }
+
+    void writeQuadWord(std::size_t index, IEC_ULINT value) override {
+        if (index >= quadWordCount()) { return; }
+        IEC_ULINT *ptr = lint_memory[index];
+        if (ptr != nullptr) {
+            *ptr = value;
+        }
+    }
+
+    std::size_t quadWordCount() const override {
+        return kQwordCount;
+    }
+
     void flushWrites() override {
         // Current implementation writes directly to the IEC buffers; nothing to flush.
+    }
+
+    bool hasDiscreteInput(std::size_t index) const override {
+        if (index >= discreteCount()) { return false; }
+        return bool_input[index / kBitsPerByte][index % kBitsPerByte] != nullptr;
+    }
+
+    bool hasCoil(std::size_t index) const override {
+        if (index >= coilCount()) { return false; }
+        return bool_output[index / kBitsPerByte][index % kBitsPerByte] != nullptr;
+    }
+
+    bool hasInputRegister(std::size_t index) const override {
+        if (index >= inputRegisterCount()) { return false; }
+        return int_input[index] != nullptr;
+    }
+
+    bool hasHoldingRegister(std::size_t index) const override {
+        if (index >= holdingRegisterCount()) { return false; }
+        return int_output[index] != nullptr;
+    }
+
+    bool hasMemoryWord(std::size_t index) const override {
+        if (index >= memoryWordCount()) { return false; }
+        return int_memory[index] != nullptr;
+    }
+
+    bool hasDoubleWord(std::size_t index) const override {
+        if (index >= doubleWordCount()) { return false; }
+        return dint_memory[index] != nullptr;
+    }
+
+    bool hasQuadWord(std::size_t index) const override {
+        if (index >= quadWordCount()) { return false; }
+        return lint_memory[index] != nullptr;
     }
 
 private:
@@ -91,10 +178,11 @@ private:
     static constexpr std::size_t kCoilCount = BUFFER_SIZE * kBitsPerByte;
     static constexpr std::size_t kRegisterCount = BUFFER_SIZE;
     static constexpr std::size_t kMemoryCount = BUFFER_SIZE;
+    static constexpr std::size_t kDwordCount = BUFFER_SIZE;
+    static constexpr std::size_t kQwordCount = BUFFER_SIZE;
 };
 
 IoFacade &getIoFacade() {
     static LadderIoFacade facade;
     return facade;
 }
-

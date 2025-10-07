@@ -29,6 +29,7 @@
 #include <pthread.h>
 
 #include "ladder.h"
+#include "io_facade.h"
 #include <string.h>
 
 #define MAX_DISCRETE_INPUT              8192
@@ -203,21 +204,26 @@ void ReadCoils(unsigned char *buffer, int bufferSize)
     buffer[8] = ByteDataLength;     //Number of bytes of data
 
     pthread_mutex_lock(&bufferLock);
+    IoFacade &io = getIoFacade();
+    const std::size_t coilCount = io.coilCount();
     for(int i = 0; i < ByteDataLength ; i++)
     {
         for(int j = 0; j < 8; j++)
         {
             int position = Start + i * 8 + j;
-            if (position < MAX_COILS)
+            if (position >= 0 && static_cast<std::size_t>(position) < coilCount)
             {
-                if (bool_output[position/8][position%8] != NULL)
+                IEC_BOOL value = 0;
+                const std::size_t idx = static_cast<std::size_t>(position);
+                if (io.hasCoil(idx))
                 {
-                    bitWrite(buffer[9 + i], j, *bool_output[position/8][position%8]);
+                    value = io.readCoil(idx);
                 }
-                else
+                else if (position < MAX_COILS)
                 {
-                    bitWrite(buffer[9 + i], j, 0);
+                    value = mb_coils[position];
                 }
+                bitWrite(buffer[9 + i], j, value);
             }
             else //invalid address
             {
@@ -270,21 +276,26 @@ void ReadDiscreteInputs(unsigned char *buffer, int bufferSize)
     buffer[8] = ByteDataLength;     //Number of bytes of data
 
     pthread_mutex_lock(&bufferLock);
+    IoFacade &io = getIoFacade();
+    const std::size_t discreteCount = io.discreteInputCount();
     for(int i = 0; i < ByteDataLength ; i++)
     {
         for(int j = 0; j < 8; j++)
         {
             int position = Start + i * 8 + j;
-            if (position < MAX_DISCRETE_INPUT)
+            if (position >= 0 && static_cast<std::size_t>(position) < discreteCount)
             {
-                if (bool_input[position/8][position%8] != NULL)
+                IEC_BOOL value = 0;
+                const std::size_t idx = static_cast<std::size_t>(position);
+                if (io.hasDiscreteInput(idx))
                 {
-                    bitWrite(buffer[9 + i], j, *bool_input[position/8][position%8]);
+                    value = io.readDiscreteInput(idx);
                 }
-                else
+                else if (position < MAX_DISCRETE_INPUT)
                 {
-                    bitWrite(buffer[9 + i], j, 0);
+                    value = mb_discrete_input[position];
                 }
+                bitWrite(buffer[9 + i], j, value);
             }
             else //invalid address
             {
@@ -335,99 +346,109 @@ void ReadHoldingRegisters(unsigned char *buffer, int bufferSize)
     buffer[5] = lowByte(ByteDataLength + 3); //Number of bytes after this one
     buffer[8] = ByteDataLength;     //Number of bytes of data
 
+    auto safeHolding = [](int pos) -> IEC_UINT {
+        if (pos >= 0 && pos < MAX_HOLD_REGS)
+        {
+            return mb_holding_regs[pos];
+        }
+        return 0;
+    };
+
     pthread_mutex_lock(&bufferLock);
+    IoFacade &io = getIoFacade();
+    const std::size_t holdingCount = io.holdingRegisterCount();
+    const std::size_t memoryCount = io.memoryWordCount();
+    const std::size_t dwordCount = io.doubleWordCount();
+    const std::size_t qwordCount = io.quadWordCount();
     for(int i = 0; i < WordDataLength; i++)
     {
         int position = Start + i;
-        if (position < MIN_16B_RANGE)  
+        if (position < MIN_16B_RANGE)
         {
-            if (int_output[position] != NULL)
+            if (position >= 0 && static_cast<std::size_t>(position) < holdingCount)
             {
-                buffer[ 9 + i * 2] = highByte(*int_output[position]);
-                buffer[10 + i * 2] = lowByte(*int_output[position]);
+                const std::size_t idx = static_cast<std::size_t>(position);
+                IEC_UINT value = io.hasHoldingRegister(idx) ?
+                    io.readHoldingRegister(idx) : safeHolding(position);
+                buffer[ 9 + i * 2] = highByte(value);
+                buffer[10 + i * 2] = lowByte(value);
             }
             else
             {
-                buffer[ 9 + i * 2] = 0;
-                buffer[10 + i * 2] = 0;
+                mb_error = ERR_ILLEGAL_DATA_ADDRESS;
             }
         }
-        //accessing memory
-        //16-bit registers
         else if (position >= MIN_16B_RANGE && position <= MAX_16B_RANGE)
         {
-            if (int_memory[position - MIN_16B_RANGE] != NULL)
+            int memIndex = position - MIN_16B_RANGE;
+            if (memIndex >= 0 && static_cast<std::size_t>(memIndex) < memoryCount)
             {
-                buffer[ 9 + i * 2] = highByte(*int_memory[position - MIN_16B_RANGE]);
-                buffer[10 + i * 2] = lowByte(*int_memory[position - MIN_16B_RANGE]);
+                std::size_t idx = static_cast<std::size_t>(memIndex);
+                IEC_UINT value = io.hasMemoryWord(idx) ?
+                    io.readMemoryWord(idx) : safeHolding(position);
+                buffer[ 9 + i * 2] = highByte(value);
+                buffer[10 + i * 2] = lowByte(value);
             }
             else
             {
-                buffer[ 9 + i * 2] = 0;
-                buffer[10 + i * 2] = 0;
+                mb_error = ERR_ILLEGAL_DATA_ADDRESS;
             }
         }
-        //32-bit registers
         else if (position >= MIN_32B_RANGE && position <= MAX_32B_RANGE)
         {
-            if (dint_memory[(position - MIN_32B_RANGE)/2] != NULL)
+            int dwordIndex = (position - MIN_32B_RANGE) / 2;
+            int wordOffset = (position - MIN_32B_RANGE) % 2;
+            IEC_UDINT value = 0;
+            if (dwordIndex >= 0 && static_cast<std::size_t>(dwordIndex) < dwordCount &&
+                io.hasDoubleWord(static_cast<std::size_t>(dwordIndex)))
             {
-                if ((position - MIN_32B_RANGE) % 2 == 0) //first word
-                {
-                    uint16_t tempValue = (uint16_t)(*dint_memory[(position - MIN_32B_RANGE)/2] >> 16);
-                    buffer[ 9 + i * 2] = highByte(tempValue);
-                    buffer[10 + i * 2] = lowByte(tempValue);
-                }
-                else //second word
-                {
-                    uint16_t tempValue = (uint16_t)(*dint_memory[(position - MIN_32B_RANGE)/2] & 0xffff);
-                    buffer[ 9 + i * 2] = highByte(tempValue);
-                    buffer[10 + i * 2] = lowByte(tempValue);
-                }
+                value = io.readDoubleWord(static_cast<std::size_t>(dwordIndex));
             }
             else
             {
-                buffer[ 9 + i * 2] = mb_holding_regs[position];
-                buffer[10 + i * 2] = mb_holding_regs[position];
+                int base = MIN_32B_RANGE + dwordIndex * 2;
+                IEC_UINT high = safeHolding(base);
+                IEC_UINT low = safeHolding(base + 1);
+                value = (static_cast<IEC_UDINT>(high) << 16) | low;
             }
+
+            uint16_t tempValue = (wordOffset == 0) ?
+                static_cast<uint16_t>((value >> 16) & 0xffff) :
+                static_cast<uint16_t>(value & 0xffff);
+            buffer[ 9 + i * 2] = highByte(tempValue);
+            buffer[10 + i * 2] = lowByte(tempValue);
         }
-        //64-bit registers
         else if (position >= MIN_64B_RANGE && position <= MAX_64B_RANGE)
         {
-            if (lint_memory[(position - MIN_64B_RANGE)/4] != NULL)
+            int qwordIndex = (position - MIN_64B_RANGE) / 4;
+            int wordOffset = (position - MIN_64B_RANGE) % 4;
+            IEC_ULINT value = 0;
+            if (qwordIndex >= 0 && static_cast<std::size_t>(qwordIndex) < qwordCount &&
+                io.hasQuadWord(static_cast<std::size_t>(qwordIndex)))
             {
-                if ((position - MIN_64B_RANGE) % 4 == 0) //first word
-                {
-                    uint16_t tempValue = (uint16_t)(*lint_memory[(position - MIN_64B_RANGE)/4] >> 48);
-                    buffer[ 9 + i * 2] = highByte(tempValue);
-                    buffer[10 + i * 2] = lowByte(tempValue);
-                }
-                else if ((position - MIN_64B_RANGE) % 4 == 1)//second word
-                {
-                    uint16_t tempValue = (uint16_t)((*lint_memory[(position - MIN_64B_RANGE)/4] >> 32) & 0xffff);
-                    buffer[ 9 + i * 2] = highByte(tempValue);
-                    buffer[10 + i * 2] = lowByte(tempValue);
-                }
-                else if ((position - MIN_64B_RANGE) % 4 == 2)//third word
-                {
-                    uint16_t tempValue = (uint16_t)((*lint_memory[(position - MIN_64B_RANGE)/4] >> 16) & 0xffff);
-                    buffer[ 9 + i * 2] = highByte(tempValue);
-                    buffer[10 + i * 2] = lowByte(tempValue);
-                }
-                else if ((position - MIN_64B_RANGE) % 4 == 3)//fourth word
-                {
-                    uint16_t tempValue = (uint16_t)(*lint_memory[(position - MIN_64B_RANGE)/4] & 0xffff);
-                    buffer[ 9 + i * 2] = highByte(tempValue);
-                    buffer[10 + i * 2] = lowByte(tempValue);
-                }
+                value = io.readQuadWord(static_cast<std::size_t>(qwordIndex));
             }
             else
             {
-                buffer[ 9 + i * 2] = mb_holding_regs[position];
-                buffer[10 + i * 2] = mb_holding_regs[position];
+                int base = MIN_64B_RANGE + qwordIndex * 4;
+                IEC_ULINT w0 = safeHolding(base);
+                IEC_ULINT w1 = safeHolding(base + 1);
+                IEC_ULINT w2 = safeHolding(base + 2);
+                IEC_ULINT w3 = safeHolding(base + 3);
+                value = (w0 << 48) | (w1 << 32) | (w2 << 16) | w3;
             }
+
+            uint16_t tempValue = 0;
+            switch (wordOffset)
+            {
+                case 0: tempValue = static_cast<uint16_t>((value >> 48) & 0xffff); break;
+                case 1: tempValue = static_cast<uint16_t>((value >> 32) & 0xffff); break;
+                case 2: tempValue = static_cast<uint16_t>((value >> 16) & 0xffff); break;
+                case 3: tempValue = static_cast<uint16_t>(value & 0xffff); break;
+            }
+            buffer[ 9 + i * 2] = highByte(tempValue);
+            buffer[10 + i * 2] = lowByte(tempValue);
         }
-        //invalid address
         else
         {
             mb_error = ERR_ILLEGAL_DATA_ADDRESS;
@@ -477,21 +498,19 @@ void ReadInputRegisters(unsigned char *buffer, int bufferSize)
     buffer[8] = ByteDataLength;     //Number of bytes of data
 
     pthread_mutex_lock(&bufferLock);
+    IoFacade &io = getIoFacade();
+    const std::size_t inputCount = io.inputRegisterCount();
     for(int i = 0; i < WordDataLength; i++)
     {
         int position = Start + i;
-        if (position < MAX_INP_REGS)
+        if (position >= 0 && static_cast<std::size_t>(position) < inputCount)
         {
-            if (int_input[position] != NULL)
-            {
-                buffer[ 9 + i * 2] = highByte(*int_input[position]);
-                buffer[10 + i * 2] = lowByte(*int_input[position]);
-            }
-            else
-            {
-                buffer[ 9 + i * 2] = 0;
-                buffer[10 + i * 2] = 0;
-            }
+            const std::size_t idx = static_cast<std::size_t>(position);
+            IEC_UINT value = io.hasInputRegister(idx) ?
+                io.readInputRegister(idx) :
+                ((position < MAX_INP_REGS) ? mb_input_regs[position] : 0);
+            buffer[ 9 + i * 2] = highByte(value);
+            buffer[10 + i * 2] = lowByte(value);
         }
         else //invalid address
         {
@@ -527,26 +546,24 @@ void WriteCoil(unsigned char *buffer, int bufferSize)
 
     Start = word(buffer[8], buffer[9]);
 
-    if (Start < MAX_COILS)
+    IoFacade &io = getIoFacade();
+    const std::size_t coilCount = io.coilCount();
+    if (Start >= 0 && static_cast<std::size_t>(Start) < coilCount)
     {
-        unsigned char value;
-        if (word(buffer[10], buffer[11]) > 0)
-        {
-            value = 1;
-        }
-        else
-        {
-            value = 0;
-        }
+        IEC_BOOL value = (word(buffer[10], buffer[11]) > 0) ? 1 : 0;
 
         pthread_mutex_lock(&bufferLock);
-        if (bool_output[Start/8][Start%8] != NULL)
+        const std::size_t idx = static_cast<std::size_t>(Start);
+        if (io.hasCoil(idx))
         {
-            *bool_output[Start/8][Start%8] = value;
+            io.writeCoil(idx, value);
+        }
+        else if (Start < MAX_COILS)
+        {
+            mb_coils[Start] = value;
         }
         pthread_mutex_unlock(&bufferLock);
     }
-
     else //invalid address
     {
         mb_error = ERR_ILLEGAL_DATA_ADDRESS;
@@ -574,51 +591,102 @@ void WriteCoil(unsigned char *buffer, int bufferSize)
  */
 int writeToRegisterWithoutLocking(int position, uint16_t value)
 {
+    IoFacade &io = getIoFacade();
+    const std::size_t holdingCount = io.holdingRegisterCount();
+    const std::size_t memoryCount = io.memoryWordCount();
+    const std::size_t dwordCount = io.doubleWordCount();
+    const std::size_t qwordCount = io.quadWordCount();
+
     //analog outputs
     if (position < MIN_16B_RANGE) 
     {
-        if (int_output[position] != NULL) *int_output[position] = value;
+        if (position < 0 || static_cast<std::size_t>(position) >= holdingCount)
+        {
+            return ERR_ILLEGAL_DATA_ADDRESS;
+        }
+        const std::size_t idx = static_cast<std::size_t>(position);
+        if (io.hasHoldingRegister(idx))
+        {
+            io.writeHoldingRegister(idx, value);
+        }
+        else if (position < MAX_HOLD_REGS)
+        {
+            mb_holding_regs[position] = value;
+        }
     }
     //accessing memory
     //16-bit registers
     else if (position >= MIN_16B_RANGE && position <= MAX_16B_RANGE)
     {
-        if (int_memory[position - MIN_16B_RANGE] != NULL) *int_memory[position - MIN_16B_RANGE] = value;
+        int memIndex = position - MIN_16B_RANGE;
+        if (memIndex < 0 || static_cast<std::size_t>(memIndex) >= memoryCount)
+        {
+            return ERR_ILLEGAL_DATA_ADDRESS;
+        }
+        const std::size_t idx = static_cast<std::size_t>(memIndex);
+        if (io.hasMemoryWord(idx))
+        {
+            io.writeMemoryWord(idx, value);
+        }
+        else if (position < MAX_HOLD_REGS)
+        {
+            mb_holding_regs[position] = value;
+        }
     }
     //32-bit registers
     else if (position >= MIN_32B_RANGE && position <= MAX_32B_RANGE)
     {
-        if (dint_memory[(position - MIN_32B_RANGE) / 2] == NULL)
+        int index = (position - MIN_32B_RANGE) / 2;
+        int wordOffset = (position - MIN_32B_RANGE) % 2;
+        if (index < 0 || static_cast<std::size_t>(index) >= dwordCount)
         {
-            mb_holding_regs[position] = value;
+            return ERR_ILLEGAL_DATA_ADDRESS;
+        }
+        const std::size_t idx = static_cast<std::size_t>(index);
+        if (io.hasDoubleWord(idx))
+        {
+            IEC_UDINT current = io.readDoubleWord(idx);
+            if (wordOffset == 0)
+            {
+                current = (current & 0x0000ffffu) | (static_cast<IEC_UDINT>(value) << 16);
+            }
+            else
+            {
+                current = (current & 0xffff0000u) | static_cast<IEC_UDINT>(value);
+            }
+            io.writeDoubleWord(idx, current);
         }
         else
         {
-            // Overwrite one word of the 32 bit register:
-            // Calculate the bit offset of the word in the 32 bit register.
-            int bit_offset = (1 - ((position - MIN_32B_RANGE) % 2)) * 16;
-            // Mask the word.
-            *dint_memory[(position - MIN_32B_RANGE) / 2] &= ~(((uint32_t) 0xffff) << bit_offset);
-            // Overwrite the word.
-            *dint_memory[(position - MIN_32B_RANGE) / 2] |= ((uint32_t) value) << bit_offset;
+            if (position < MAX_HOLD_REGS)
+            {
+                mb_holding_regs[position] = value;
+            }
         }
     }
     //64-bit registers
     else if (position >= MIN_64B_RANGE && position <= MAX_64B_RANGE)
     {
-        if (lint_memory[(position - MIN_64B_RANGE) / 4] == NULL)
+        int index = (position - MIN_64B_RANGE) / 4;
+        int wordOffset = (position - MIN_64B_RANGE) % 4;
+        if (index < 0 || static_cast<std::size_t>(index) >= qwordCount)
         {
-            mb_holding_regs[position] = value;
+            return ERR_ILLEGAL_DATA_ADDRESS;
+        }
+        const std::size_t idx = static_cast<std::size_t>(index);
+        if (io.hasQuadWord(idx))
+        {
+            IEC_ULINT current = io.readQuadWord(idx);
+            IEC_ULINT mask = static_cast<IEC_ULINT>(0xffff) << ((3 - wordOffset) * 16);
+            current = (current & ~mask) | (static_cast<IEC_ULINT>(value) << ((3 - wordOffset) * 16));
+            io.writeQuadWord(idx, current);
         }
         else
         {
-            // Overwrite one word of the 64 bit register:
-            // Calculate the bit offset of the word in the 64 bit register.
-            int bit_offset = (3 - ((position - MIN_64B_RANGE) % 4)) * 16;
-            // Mask the word.
-            *lint_memory[(position - MIN_64B_RANGE) / 4] &= ~(((uint64_t) 0xffff) << bit_offset);
-            // Overwrite the word.
-            *lint_memory[(position - MIN_64B_RANGE) / 4] |= ((uint64_t) value) << bit_offset;
+            if (position < MAX_HOLD_REGS)
+            {
+                mb_holding_regs[position] = value;
+            }
         }
     }
     else //invalid address
@@ -694,14 +762,25 @@ void WriteMultipleCoils(unsigned char *buffer, int bufferSize)
     buffer[5] = 6; //Number of bytes after this one.
 
     pthread_mutex_lock(&bufferLock);
+    IoFacade &io = getIoFacade();
+    const std::size_t coilCount = io.coilCount();
     for(int i = 0; i < ByteDataLength ; i++)
     {
         for(int j = 0; j < 8; j++)
         {
             int position = Start + i * 8 + j;
-            if (position < MAX_COILS)
+            if (position >= 0 && static_cast<std::size_t>(position) < coilCount)
             {
-                if (bool_output[position/8][position%8] != NULL) *bool_output[position/8][position%8] = bitRead(buffer[13 + i], j);
+                IEC_BOOL value = bitRead(buffer[13 + i], j);
+                const std::size_t idx = static_cast<std::size_t>(position);
+                if (io.hasCoil(idx))
+                {
+                    io.writeCoil(idx, value);
+                }
+                else if (position < MAX_COILS)
+                {
+                    mb_coils[position] = value;
+                }
             }
             else //invalid address
             {

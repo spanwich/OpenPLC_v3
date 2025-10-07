@@ -13,6 +13,7 @@ public:
 
     // ===== Discrete Inputs (read-only from field side) =====
     virtual IEC_BOOL readDiscreteInput(std::size_t index) const = 0;
+    virtual void writeDiscreteInput(std::size_t index, IEC_BOOL value) = 0;
     virtual std::size_t discreteInputCount() const = 0;
 
     // ===== Coils (read/write bits) =====
@@ -22,6 +23,7 @@ public:
 
     // ===== Input Registers (read-only words) =====
     virtual IEC_UINT readInputRegister(std::size_t index) const = 0;
+    virtual void writeInputRegister(std::size_t index, IEC_UINT value) = 0;
     virtual std::size_t inputRegisterCount() const = 0;
 
     // ===== Holding Registers (read/write words) =====
@@ -34,9 +36,29 @@ public:
     virtual void writeMemoryWord(std::size_t index, IEC_UINT value) = 0;
     virtual std::size_t memoryWordCount() const = 0;
 
+    // ===== 32-bit data (double words) =====
+    virtual IEC_UDINT readDoubleWord(std::size_t index) const = 0;
+    virtual void writeDoubleWord(std::size_t index, IEC_UDINT value) = 0;
+    virtual std::size_t doubleWordCount() const = 0;
+
+    // ===== 64-bit data (quad words) =====
+    virtual IEC_ULINT readQuadWord(std::size_t index) const = 0;
+    virtual void writeQuadWord(std::size_t index, IEC_ULINT value) = 0;
+    virtual std::size_t quadWordCount() const = 0;
+
     // Hook to allow implementations to flush staged writes or perform
     // consistency checks after a batch of operations.
     virtual void flushWrites() = 0;
+
+    // Mapping helpers (true when the requested address is bound to an IEC
+    // variable rather than the Modbus-only backing store).
+    virtual bool hasDiscreteInput(std::size_t index) const = 0;
+    virtual bool hasCoil(std::size_t index) const = 0;
+    virtual bool hasInputRegister(std::size_t index) const = 0;
+    virtual bool hasHoldingRegister(std::size_t index) const = 0;
+    virtual bool hasMemoryWord(std::size_t index) const = 0;
+    virtual bool hasDoubleWord(std::size_t index) const = 0;
+    virtual bool hasQuadWord(std::size_t index) const = 0;
 };
 
 IoFacade &getIoFacade();

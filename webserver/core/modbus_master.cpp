@@ -38,6 +38,7 @@
 #include <string>
 
 #include "ladder.h"
+#include "io_facade.h"
 
 #define MB_TCP                1
 #define MB_RTU                2
@@ -694,10 +695,32 @@ void updateBuffersIn_MB()
 {
     pthread_mutex_lock(&ioLock);
 
+    IoFacade &io = getIoFacade();
+    const std::size_t discreteCount = io.discreteInputCount();
+    const std::size_t inputCount = io.inputRegisterCount();
+    const int discreteBase = 100 * 8;
+
     for (int i = 0; i < MAX_MB_IO; i++)
     {
-        if (bool_input[100+(i/8)][i%8] != NULL) *bool_input[100+(i/8)][i%8] = bool_input_buf[i];
-        if (int_input[100+i] != NULL) *int_input[100+i] = int_input_buf[i];
+        int discreteIndex = discreteBase + i;
+        if (discreteIndex >= 0 && static_cast<std::size_t>(discreteIndex) < discreteCount)
+        {
+            const std::size_t idx = static_cast<std::size_t>(discreteIndex);
+            if (io.hasDiscreteInput(idx))
+            {
+                io.writeDiscreteInput(idx, bool_input_buf[i]);
+            }
+        }
+
+        int inputIndex = 100 + i;
+        if (inputIndex >= 0 && static_cast<std::size_t>(inputIndex) < inputCount)
+        {
+            const std::size_t idx = static_cast<std::size_t>(inputIndex);
+            if (io.hasInputRegister(idx))
+            {
+                io.writeInputRegister(idx, int_input_buf[i]);
+            }
+        }
     }
 
     pthread_mutex_unlock(&ioLock);
@@ -712,10 +735,32 @@ void updateBuffersOut_MB()
 {
     pthread_mutex_lock(&ioLock);
 
+    IoFacade &io = getIoFacade();
+    const std::size_t coilCount = io.coilCount();
+    const std::size_t holdingCount = io.holdingRegisterCount();
+    const int discreteBase = 100 * 8;
+
     for (int i = 0; i < MAX_MB_IO; i++)
     {
-        if (bool_output[100+(i/8)][i%8] != NULL) bool_output_buf[i] = *bool_output[100+(i/8)][i%8];
-        if (int_output[100+i] != NULL) int_output_buf[i] = *int_output[100+i];
+        int coilIndex = discreteBase + i;
+        if (coilIndex >= 0 && static_cast<std::size_t>(coilIndex) < coilCount)
+        {
+            const std::size_t idx = static_cast<std::size_t>(coilIndex);
+            if (io.hasCoil(idx))
+            {
+                bool_output_buf[i] = io.readCoil(idx);
+            }
+        }
+
+        int holdingIndex = 100 + i;
+        if (holdingIndex >= 0 && static_cast<std::size_t>(holdingIndex) < holdingCount)
+        {
+            const std::size_t idx = static_cast<std::size_t>(holdingIndex);
+            if (io.hasHoldingRegister(idx))
+            {
+                int_output_buf[i] = io.readHoldingRegister(idx);
+            }
+        }
     }
 
     pthread_mutex_unlock(&ioLock);
