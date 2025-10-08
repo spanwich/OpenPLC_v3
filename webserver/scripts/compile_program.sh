@@ -11,13 +11,38 @@ OPENPLC_PLATFORM=$(cat openplc_platform)
 ETHERCAT_OPT=$(cat ethercat)
 OPENPLC_DRIVER=$(cat openplc_driver)
 
+SOURCE_INPUT="$1"
+SOURCE_FILE="$(basename "$SOURCE_INPUT")"
+SOURCE_PATH=$(readlink -f "../st_files/$SOURCE_FILE" 2>/dev/null || printf '')
+SCRUBBED_PATH="$SOURCE_PATH"
+TMP_SCRUB=""
+
+cleanup() {
+    if [ -n "$TMP_SCRUB" ] && [ -f "$TMP_SCRUB" ]; then
+        rm -f "$TMP_SCRUB"
+    fi
+}
+trap cleanup EXIT
+
+if [ -z "$SOURCE_PATH" ] || [ ! -f "$SOURCE_PATH" ]; then
+    echo "Error: ST file '$SOURCE_FILE' not found in st_files/"
+    exit 1
+fi
+
+if grep -qF '(*DBG:' "$SOURCE_PATH"; then
+    TMP_SCRUB=$(mktemp)
+    grep -vF '(*DBG:' "$SOURCE_PATH" > "$TMP_SCRUB"
+    SCRUBBED_PATH="$TMP_SCRUB"
+    echo "Stripped debug block from $SOURCE_FILE before compilation"
+fi
+
 #store the active program filename
-echo "$1" > ../active_program
+echo "$SOURCE_FILE" > ../active_program
 
 #compiling the ST file into C
 cd ..
 echo "Generating C files..."
-./iec2c -f -l -p -r -R -a ./st_files/"$1"
+./iec2c -f -l -p -r -R -a "$SCRUBBED_PATH"
 if [ $? -ne 0 ]; then
     echo "Error generating C files"
     echo "Compilation finished with errors!"
