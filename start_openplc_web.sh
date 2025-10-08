@@ -18,6 +18,13 @@ if [ -d "/docker_persistent" ]; then
     cp -n "$WEB_DIR/st_files_default"/* /docker_persistent/st_files/ 2>/dev/null || true
     : > /docker_persistent/persistent.file
     : > /docker_persistent/mbconfig.cfg
+else
+    [ -f "$WEB_DIR/openplc_default.db" ] && [ ! -f "$WEB_DIR/openplc.db" ] && cp "$WEB_DIR/openplc_default.db" "$WEB_DIR/openplc.db"
+    [ -f "$WEB_DIR/active_program_default" ] && [ ! -f "$WEB_DIR/active_program" ] && cp "$WEB_DIR/active_program_default" "$WEB_DIR/active_program"
+    mkdir -p "$WEB_DIR/st_files"
+    if [ -d "$WEB_DIR/st_files_default" ]; then
+        cp -n "$WEB_DIR/st_files_default"/* "$WEB_DIR/st_files/" 2>/dev/null || true
+    fi
 fi
 
 cd "$WEB_DIR"

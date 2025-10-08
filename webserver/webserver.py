@@ -2507,9 +2507,14 @@ if __name__ == '__main__':
             cur.execute("SELECT * FROM Programs WHERE File=?", (st_file,))
             #cur.execute("SELECT * FROM Programs")
             row = cur.fetchone()
-            openplc_runtime.project_name = str(row[1])
-            openplc_runtime.project_description = str(row[2])
-            openplc_runtime.project_file = str(row[3])
+            if row is None:
+                openplc_runtime.project_name = st_file
+                openplc_runtime.project_description = ""
+                openplc_runtime.project_file = st_file
+            else:
+                openplc_runtime.project_name = str(row[1])
+                openplc_runtime.project_description = str(row[2])
+                openplc_runtime.project_file = str(row[3])
             
             cur.execute("SELECT * FROM Settings")
             rows = cur.fetchall()
